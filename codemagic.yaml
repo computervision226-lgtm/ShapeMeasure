@@ -1,0 +1,53 @@
+# Commit the CONTENTS of the ShapeMeasure folder at your repository root.
+# Setup instructions: CODEMAGIC.md. Replace both example bundle IDs below.
+workflows:
+  shapemeasure-testflight:
+    name: ShapeMeasure TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: shapemeasure-apple
+    environment:
+      xcode: "26.6"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.yourcompany.shapemeasure
+      vars:
+        BUNDLE_ID: "com.yourcompany.shapemeasure"
+        BUILD_NUMBER_OFFSET: "0"
+    scripts:
+      - name: Check geometry and shapefile exporter
+        script: |
+          set -euo pipefail
+          bash Scripts/verify.sh
+      - name: Configure bundle identifier and build number
+        script: |
+          set -euo pipefail
+          python3 Scripts/configure_ci.py \
+            --bundle-id "$BUNDLE_ID" \
+            --counter "$PROJECT_BUILD_NUMBER" \
+            --offset "$BUILD_NUMBER_OFFSET"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Apply App Store signing profiles
+        script: |
+          set -euo pipefail
+          xcode-project use-profiles --project ShapeMeasure.xcodeproj
+      - name: Build signed iPhone app
+        script: |
+          set -euo pipefail
+          xcode-project build-ipa \
+            --project ShapeMeasure.xcodeproj \
+            --scheme ShapeMeasure \
+            --config Release
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Upload the IPA. Assign the processed build to an internal group
+        # in App Store Connect, following CODEMAGIC.md.
+        submit_to_testflight: false
+        submit_to_app_store: false
