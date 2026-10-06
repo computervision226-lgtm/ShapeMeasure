@@ -18,6 +18,16 @@
 
 Project metadata and asset catalogues are checked for presence and syntax when packaging. This does not replace Xcode compilation.
 
+## Direct LiDAR point cloud checks
+
+The new capture mode uses `ARFrame.sceneDepth`, camera intrinsics scaled to depth resolution, and the frame's camera transform. It samples measured depth/confidence pixels and voxel-filters the cloud. It does not use ARKit visual feature points, photo reconstruction, or a generated mesh as a substitute for LiDAR points.
+
+The production C functions called by that screen passed 11 additional tests (28 total): camera-plane depth versus radial distance, image-to-camera axis signs, scaled intrinsics, a rotated/translated column-major pose, agreement from two camera positions observing the same static point, invalid depth/intrinsics/pose, BT.601/BT.709 and full/video range camera colour, independently decoded binary PLY schema/payload, metric XYZ coordinate preservation, rejected invalid clouds without overwriting a file, and failed destinations. The C compiler treats warnings as errors.
+
+The project includes all three new Swift files. Its existing build configurations and shared scheme were verified unchanged after adding source references. `codemagic.yaml` adds **ShapeMeasure LiDAR build check** using the latest stable Xcode selection, unsigned compilation, and downloadable build logs; it requires no signing identities and does not publish a build. The signed TestFlight workflow retains its existing Apple integration, bundle identifier, distribution type, and Xcode selection.
+
+**Pending on a cloud Mac and physical LiDAR iPhone:** compile the complete Swift app; verify camera permission denied/allowed flows; capture a static scene in portrait; confirm colours and axis orientation against known features; inspect the cloud from several camera positions; stop/resume without a tracking reset; interrupt/background/relocalize and verify accumulation remains blocked until Reset; export/reopen/share files; inspect the PLY in the chosen point cloud tool; exercise the point cap and monitor memory/temperature during capture; and compare independent measured distances. Swift syntax checks are not a substitute for framework type checking or a hardware run.
+
 The TestFlight preparation adds a Mac archive helper, upload/install instructions, and the `ITSAppUsesNonExemptEncryption = NO` declaration for this source's lack of custom cryptography or a network backend. Shell syntax, argument validation, and the helper's unsupported-platform exit are checked in this workspace. Its real signed archive path still requires execution on a Mac with Xcode and your developer team.
 
 The Codemagic preparation adds `codemagic.yaml`, `CODEMAGIC.md`, and a bundle-ID/build-number configuration helper. The workflow YAML and embedded shell syntax are checked locally. The helper is checked against copies of the real project for both target configurations, build counter/offset handling, idempotence, invalid inputs, and failure without partial writes. Cloud signing, iOS compilation, IPA export and upload remain unexecuted pending Codemagic and Apple credentials.

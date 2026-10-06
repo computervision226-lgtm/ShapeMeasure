@@ -10,7 +10,7 @@
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>ITSAppUsesNonExemptEncryption</key><false/>
-    <key>NSCameraUsageDescription</key><string>Capture object photos and video to reconstruct and measure their shape on your iPhone.</string>
+    <key>NSCameraUsageDescription</key><string>Read rear LiDAR depth and camera images to save point clouds, or capture photos and video to reconstruct and measure shapes.</string>
     <key>NSMicrophoneUsageDescription</key><string>The video recorder can capture audio. Audio is not used for reconstruction.</string>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
     <key>UILaunchScreen</key><dict/>

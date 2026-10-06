@@ -2,7 +2,17 @@
 
 Codemagic builds and signs the app on its cloud Mac, then uploads the signed IPA to App Store Connect. You can set up this route in a browser without installing Xcode on your own computer. Your enrolled Apple Developer Program account is still used for signing and TestFlight.
 
-The included workflow uses Codemagic's documented Xcode 26.6 image. It runs the production geometry tests, configures this app's bundle ID and build number, applies your App Store provisioning profile, and builds the Release IPA. This source has not yet been compiled on an iOS build machine; the first cloud run will check the Swift code and framework linking.
+The signed workflow currently selects Xcode 26.6. It runs the production geometry and point cloud tests, configures this app's bundle ID and build number, applies your App Store provisioning profile, and builds the Release IPA. The new LiDAR screen still needs an iOS build and a physical iPhone capture test.
+
+**Check the LiDAR update before signing.**
+
+1. In the ShapeMeasure app's Codemagic build screen, select the Git branch containing the LiDAR changes (or `main` after merging them). Both workflows read the source from the selected branch.
+2. Choose **ShapeMeasure LiDAR build check** (`shapemeasure-lidar-check`) and start the build. It uses `xcode: latest`, runs all 28 portable tests, and compiles for a generic iPhone with signing disabled. No Apple profiles or certificates are required, and it does not upload to App Store Connect. Its unsigned result cannot be installed through TestFlight.
+3. If compilation fails, download `shapemeasure-ios-build.log` from the artifacts and inspect the first Swift/Xcode error. A green portable-test step alone is not an iOS build success.
+4. After the check passes, select **ShapeMeasure TestFlight** (`shapemeasure-testflight`) on the same branch. Your existing Apple integration can be reused. This workflow still requires an **App Store** profile for `com.maged.shapemeasure` and its matching distribution certificate/private key. A **development** profile cannot sign the TestFlight build.
+5. After App Store Connect processing, add the uploaded build to your internal testing group and install it in TestFlight. In the installed app choose **LiDAR Point Cloud → Start → Stop → Save PLY + XYZ → Share files**. Use **Save to Files** or AirDrop to transfer the point cloud.
+
+The steps below cover the full signing setup for a new project. If your Apple integration and distribution certificate are already valid, reuse them and ensure the app-specific profile has the correct bundle ID and distribution type.
 
 **1. Put the extracted source in a Git repository.**
 

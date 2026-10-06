@@ -1,12 +1,12 @@
 # ShapeMeasure for iPhone
 
-A native iPhone source project for **small rigid objects → reconstructed 3D geometry → measurements → GIS shapefiles**.
+A native iPhone source project for **direct LiDAR → point clouds**, and **small rigid objects → reconstructed 3D geometry → measurements → GIS shapefiles**.
 
-This first version targets a supported **LiDAR iPhone Pro running iOS 17 or later**. It uses Apple's Object Capture and on-device photogrammetry. There is no backend, account system, API key, or cloud reconstruction bill. Runtime support checks determine whether capture and reconstruction are available on the device.
+This version targets a supported **LiDAR iPhone Pro running iOS 17 or later**. The **LiDAR Point Cloud** screen reads rear-camera ARKit `sceneDepth` directly and exports measured points. The **Scan an object** screen uses Apple's Object Capture and on-device photogrammetry to reconstruct a mesh. There is no backend, account system, API key, or cloud reconstruction bill. Each capture mode checks its device capability independently.
 
-**Delivery status:** the production C geometry/export engine compiles and its automated tests pass in this workspace. The Xcode project and Swift interface are supplied as source. iOS compilation, camera capture, reconstruction, UI interaction, and real-world accuracy still need validation on a Mac and physical iPhone. This is a development prototype, not a signed app or an App Store release.
+**Delivery status:** the production C geometry/depth/export engine compiles; 28 automated tests pass in this workspace. The Xcode project and Swift interface are supplied as source. iOS compilation, camera/LiDAR capture, reconstruction, UI interaction, and real-world accuracy still need validation through a cloud/Mac build and a physical iPhone. This is a development prototype, not a signed app or an App Store release.
 
-For **TestFlight through Codemagic**, follow **[CODEMAGIC.md](CODEMAGIC.md)** and use the included `codemagic.yaml`. Codemagic supplies the cloud Mac/Xcode build machine, so local Xcode installation is optional. The guide covers Apple signing, cloud upload, and installing through an internal testing group. No cloud build has run or been uploaded yet.
+For **TestFlight through Codemagic**, follow **[CODEMAGIC.md](CODEMAGIC.md)** and use the included `codemagic.yaml`. Codemagic supplies the cloud Mac/Xcode build machine, so local Xcode installation is optional. First run **ShapeMeasure LiDAR build check**, which compiles without signing or uploading. Then run **ShapeMeasure TestFlight** with your App Store signing identities. Cloud build/upload success has not been verified in this workspace.
 
 For the **local Mac route**, follow **[TESTFLIGHT.md](TESTFLIGHT.md)**. The package also includes `Scripts/archive_testflight.sh` for creating a signed archive on your Mac.
 
@@ -22,6 +22,27 @@ For the **local Mac route**, follow **[TESTFLIGHT.md](TESTFLIGHT.md)**. The pack
 8. Tap **Try demo** first. The synthetic object should show **20 cm width, 10 cm depth, 5 cm height**, surface area **700 cm²**, footprint **200 cm²**, and closed-mesh volume **1,000 cm³**. Export the demo to inspect the GIS files.
 
 These steps install a development build directly from Xcode. To install through TestFlight, complete the signing/upload/group setup in [TESTFLIGHT.md](TESTFLIGHT.md). Developer Mode applies to direct Xcode testing, not TestFlight installation.
+
+## Read iPhone LiDAR and export a point cloud
+
+1. Open **LiDAR Point Cloud** on the home screen and allow Camera access. The mode requires `ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth)`; photos, ordinary videos, simulators, and Google Colab cannot supply the phone's rear LiDAR depth stream.
+2. Choose point spacing (5 mm, 1 cm, or 2 cm), depth confidence, and maximum depth before starting. Defaults are 1 cm voxels, high confidence, and 0.2–4 m camera-plane depth. Spacing is a storage density setting, not an accuracy specification.
+3. Wait for tracking, tap **Start**, and slowly move around the stationary object or scene. This mode captures visible background surfaces too; it does not segment an object. Prefer short, overlapping passes with steady motion and good light.
+4. Switch between **Camera** and **Point cloud**. Drag the cloud to rotate, pinch to zoom, and use **Fit** to reframe it. The live preview shows up to 25,000 representative points; exports contain all retained points.
+5. Tap **Stop**, then **Save PLY + XYZ**. Saved clouds remain in the app's **Documents/PointClouds** folder and appear under **Saved point clouds** after reopening the app. Tap **Share files**, **PLY**, or **XYZ** to use Save to Files or AirDrop.
+6. Resume while tracking remains uninterrupted, or **Reset** for a separate capture. A background event, AR interruption, relocalization, or the 500,000-point limit stops accumulation; save the current cloud and reset before another capture so coordinate frames are not mixed.
+
+| File | Contents |
+|---|---|
+| `LiDAR-<id>.ply` | Binary little-endian point cloud: float XYZ in metres, camera RGB bytes, and an ARKit confidence byte (0 low, 1 medium, 2 high). No faces. |
+| `LiDAR-<id>.xyz` | Plain-text XYZ coordinates in metres, three columns, one retained point per row. Same coordinates as PLY. |
+| `LiDAR-<id>.json` | Point count, bounds, camera/depth settings, confidence interpretation, duration, last depth intrinsics, interruption reason, and coordinate/accuracy notes. |
+
+Depth pixels are unprojected with intrinsics scaled to depth resolution, the camera-image Y/Z axes are converted to ARKit camera axes, and `ARCamera.transform` places samples in the session world. The first accepted measurement in each voxel is retained. Depth is sampled every second pixel, at up to 10 frames/second. Colours use the corresponding camera image; unsupported colour data uses neutral grey and is counted in the report.
+
+**The cloud uses ARKit's local metric world frame with Y up**, a session-dependent origin, and no geographic CRS. This differs from the existing mesh GIS export's normalized Z-up frame. No GPS coordinate system is attached. ARKit `sceneDepth` is an estimated dense depth map produced using LiDAR and camera processing, not a raw list of laser returns. Points already inserted are not adjusted for later pose refinements; tracking drift can produce doubled surfaces. Shiny/transparent surfaces can leave gaps. Validate scale and distances against an independent reference.
+
+This mode produces point clouds. The existing mesh measurement/shapefile flow remains available through **Scan an object**. A point cloud alone has no closed surface or volume; it is not automatically converted to the mesh GIS layers. Exported XYZ/PLY can be uploaded to a point cloud processing notebook; the photo-reconstruction notebook requires a separate point cloud import path.
 
 ## Scan a small object
 
@@ -93,16 +114,17 @@ The project has no third-party Swift dependencies. Its source is organized as fo
 
 ```text
 App/                  SwiftUI capture/import/reconstruction/review and persistence
-Core/ScanCore.c        Production mesh analysis, shapefile/DBF/OBJ/JSON/CSV/ZIP export
+Core/ScanCore.c        Depth unprojection, PLY/XYZ, mesh analysis and GIS bundle export
 Core/ScanCore.h        C/Swift interface
 ShapeMeasure.xcodeproj Ready-to-open Xcode project and shared scheme
 Tests/test_core.py     Production-core tests with independent binary parsers
+Tests/test_point_cloud.py Depth unprojection, camera colours, PLY and XYZ tests
 Scripts/              Reproducible verification, project generation and example creation
 Examples/box_export.zip Synthetic sample exported by the production core
 VALIDATION.md          Executed checks and remaining physical-device checks
 TESTFLIGHT.md          Mac signing, archive/upload, tester installation and troubleshooting
 CODEMAGIC.md           Cloud signing/build/upload and TestFlight setup
-codemagic.yaml         Native iOS cloud workflow using Xcode 26.6
+codemagic.yaml         Unsigned LiDAR build check plus signed TestFlight workflow
 ```
 
 Run the portable verification on Linux or macOS with a C compiler and Python 3:
@@ -130,12 +152,16 @@ The simulator can exercise the synthetic demo, persistence, model interaction an
 
 ## Deliberate first-version scope
 
-Included: guided capture, photo/video import, on-device reconstruction, geometry preview, ruler calibration, saved distances, scan persistence, metric shapefile/OBJ/JSON/CSV export and a synthetic demo.
+Included: direct ARKit LiDAR point cloud capture, coloured PLY/XYZ export with confidence metadata, guided object capture, photo/video import, on-device reconstruction, geometry preview, ruler calibration, saved distances, scan persistence, metric shapefile/OBJ/JSON/CSV export and a synthetic demo.
 
 Further work: flipped-object capture with pause/resume guidance, crop/cleanup tools, frame sharpness and viewpoint checks, export of calibrated textured USDZ, tighter topology/self-intersection validation, oriented dimensions, georeferencing/control points, object labels, and real-device accuracy benchmarking. Semantic labels and AI-generated geometry do not establish metric truth; measured geometry must retain a real scale source.
 
 ## Primary technical references
 
+- [Apple ARFrame.sceneDepth](https://developer.apple.com/documentation/arkit/arframe/scenedepth)
+- [Apple ARDepthData and confidence](https://developer.apple.com/documentation/arkit/ardepthdata)
+- [Apple camera coordinate transform](https://developer.apple.com/documentation/arkit/arcamera/transform)
+- [Apple ARKit 4 depth overview](https://developer.apple.com/videos/play/wwdc2020/10611/)
 - [Apple Object Capture](https://developer.apple.com/documentation/realitykit/realitykit-object-capture)
 - [Apple: Meet Object Capture for iOS](https://developer.apple.com/videos/play/wwdc2023/10191/)
 - [Apple PhotogrammetrySession](https://developer.apple.com/documentation/realitykit/photogrammetrysession)
