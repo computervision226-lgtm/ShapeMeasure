@@ -51,12 +51,16 @@ final class ScanRecorder: NSObject, ObservableObject, ARSessionDelegate {
     private var uiTick = 0
     private var tracker = CoverageTracker()
     private var videoSize = CGSize(width: 1920, height: 1440)
-    private let deviceModel = UIDevice.current.model
-    private let systemVersion = UIDevice.current.systemVersion
+    private var deviceModel = ""
+    private var systemVersion = ""
 
     // MARK: session
 
     func startSession() {
+        if deviceModel.isEmpty {                      // UIDevice is main-thread only; startSession runs on main
+            deviceModel = UIDevice.current.model
+            systemVersion = UIDevice.current.systemVersion
+        }
         guard Self.lidarSupported else {
             DispatchQueue.main.async {
                 self.lastError = "This iPhone has no LiDAR scanner. PartScan needs an iPhone Pro (12 Pro or later)."

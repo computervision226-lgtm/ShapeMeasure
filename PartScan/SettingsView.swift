@@ -89,10 +89,18 @@ struct SettingsView: View {
             do {
                 let p = try await APIClient(settings: settings).ping()
                 let dev = p.device ?? "?"
+                let name = p.app ?? "PartScan"
+                let version = p.version ?? ""
+                var text = "Connected: \(name) \(version) on \(dev)"
+                if dev == "cpu" {
+                    text += " — no GPU! choose a GPU runtime / hardware"
+                }
+                let needsKey = p.auth ?? false
+                if needsKey && settings.accessKey.isEmpty {
+                    text += " — this server needs an access key"
+                }
                 testOK = p.ok
-                testResult = "Connected: \(p.app ?? "PartScan") \(p.version ?? "") on \(dev)"
-                    + (dev == "cpu" ? " — no GPU! choose a GPU runtime / hardware" : "")
-                    + ((p.auth ?? false) && settings.accessKey.isEmpty ? " — this server needs an access key" : "")
+                testResult = text
             } catch {
                 testOK = false
                 testResult = error.localizedDescription
