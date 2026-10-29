@@ -1,0 +1,15 @@
+torch
+torchvision
+transformers>=5.0
+numpy>=2
+opencv-contrib-python-headless
+scipy
+scikit-image
+shapely
+pandas
+matplotlib
+pillow
+trimesh
+av
+fast-simplification
+qrcode
