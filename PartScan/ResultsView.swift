@@ -24,6 +24,8 @@ struct ResultsSection: View {
                     Text(s.text).font(.title2.bold().monospacedDigit())
                     Text("length × width × height (\(s.how ?? "")) · \(s.holes ?? 0) hole(s)\(roughText(s)) · scale from \(s.scaleReference ?? "?")")
                         .font(.footnote).foregroundStyle(.secondary)
+                    Text("Job \(job.jobId) — look it up in the server's Scans log")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
             ForEach(Array((job.warnings ?? []).enumerated()), id: \.offset) { _, w in

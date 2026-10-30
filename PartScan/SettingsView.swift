@@ -63,7 +63,10 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                Text("PartScan records LiDAR + video in the Stray Scanner layout and sends it to the PartScan server, which builds a true-scale, measured 3D model (board scale, photogrammetry, Prompt Depth Anything, SAM 2.1, TSDF fusion). Always check one dimension with a caliper.")
+                LabeledContent("App version", value: DeviceInfo.appVersion)
+                LabeledContent("Device", value: DeviceInfo.modelId)
+                LabeledContent("System", value: DeviceInfo.system)
+                Text("These identifiers are sent with every scan, so the server's Scans log (tab 4 of the notebook) shows which phone and app build produced it. PartScan records LiDAR + video in the Stray Scanner layout; the server builds the measured 3D model. Always check one dimension with a caliper.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
