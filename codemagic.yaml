@@ -60,9 +60,8 @@ workflows:
       app_store_connect: shapemeasure-apple
     environment:
       xcode: "26.6"
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.maged.shapemeasure
+      groups:
+        - partscan_signing   # holds the secret CERTIFICATE_PRIVATE_KEY (PARTSCAN.md, step 2)
       vars:
         # PartScan ships under the existing ShapeMeasure app record (same bundle ID, version 1.0.x).
         # Installing it from TestFlight replaces ShapeMeasure on the phone, and vice versa.
@@ -80,9 +79,15 @@ workflows:
             --offset "$BUILD_NUMBER_OFFSET"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
-      - name: Apply App Store signing profiles
+      - name: Fetch or create the signing certificate and App Store profile
         script: |
           set -euo pipefail
+          : "${CERTIFICATE_PRIVATE_KEY:?Add the secret variable CERTIFICATE_PRIVATE_KEY in group partscan_signing (see PARTSCAN.md, step 2)}"
+          keychain initialize
+          # Uses the App Store Connect key of the integration: finds (or creates) the Apple Distribution
+          # certificate matching CERTIFICATE_PRIVATE_KEY and an App Store provisioning profile for BUNDLE_ID.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
           xcode-project use-profiles --project PartScan.xcodeproj
       - name: Build signed PartScan app
         script: |

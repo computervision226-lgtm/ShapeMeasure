@@ -20,15 +20,19 @@ The repository already contains a working Codemagic setup for ShapeMeasure; Part
    replaces ShapeMeasure, and installing a ShapeMeasure build replaces PartScan. *(To have both installed at once,
    register a second App ID, e.g. `com.maged.partscan`, create its app record, and put it in both bundle-ID fields
    of the `partscan-testflight` workflow.)*
-2. **Codemagic signing files** (once; the `partscan-testflight` workflow shares them with ShapeMeasure). The
-   `ios_signing` block picks the certificate and profile from *Team settings → Code signing identities*, so both must
-   be there or the build stops with *"No matching profiles found for bundle identifier … app_store"*:
-   - *iOS certificates*: if empty, **Generate certificate** → Apple Distribution → integration `shapemeasure-apple`.
-   - *iOS provisioning profiles*: **Fetch profiles** with the integration and select the App Store profile for
-     `com.maged.shapemeasure`. If there is none yet: register the App ID in
-     [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list) (explicit, no
-     capabilities), create an *App Store Connect* distribution profile for it there choosing the certificate
-     Codemagic generated, then fetch (or upload) it. The profile must show a green check next to its certificate.
+2. **One secret for signing** (once). The workflow fetches — or creates — the Apple Distribution certificate and
+   the App Store provisioning profile by itself through the `shapemeasure-apple` App Store Connect key. Apple
+   certificates need a private key that Codemagic does not hold, so make one and store it as a secret:
+   - On a Mac / Linux terminal, or Windows PowerShell:
+     `ssh-keygen -t rsa -b 2048 -m PEM -f partscan_cert_key -q -N ""` → this writes the file `partscan_cert_key`.
+   - Codemagic → the ShapeMeasure app → **Environment variables** tab: name `CERTIFICATE_PRIVATE_KEY`, value =
+     the whole content of `partscan_cert_key` (from `-----BEGIN RSA PRIVATE KEY-----` to the END line), group
+     `partscan_signing` (type the name to create it), tick **Secure**, Add.
+   - The App Store Connect key behind the integration needs the *App Manager* (or Admin) role. If the build
+     reports a permission error while creating the bundle ID, register `com.maged.shapemeasure` once in
+     [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list) and rerun.
+   - If Apple answers that the certificate limit is reached, revoke an unused *Apple Distribution* certificate in
+     the Developer portal (Certificates) and rerun.
 3. **Start a build**: Codemagic → *Start new build* → this branch → workflow **PartScan TestFlight**. The build
    takes ~10 min and uploads the signed IPA to App Store Connect. *If the Swift compile fails*: open the log, copy
    the first `error:` line with its file/line, and send it back — the code was written without a Mac, so the first
