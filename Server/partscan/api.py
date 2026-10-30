@@ -5,6 +5,7 @@
     GET  /api/jobs/{id}                 status, progress, and (when done) summary, rows, warnings, files
     GET  /api/jobs/{id}/files/{key}     a result file (zip, stl, obj, ply, glb, drawing, qa, csv, json, report, viewer)
     GET  /api/jobs/{id}/raw/{name}      any file of the result folder by name (lets report.html find its images)
+    GET  /api/jobs/{id}/log             the pipeline log of that job
     GET  /api/ping                      {ok, app, version, auth, device}
 
 Authentication (optional): an access key checked on every /api route, given as the X-PartScan-Key
@@ -50,7 +51,7 @@ class Job:
     def to_dict(self, full: bool = True) -> dict:
         d = dict(jobId=self.id, status=self.status, progress=round(float(self.progress), 4), message=self.message,
                  error=self.error, createdAt=datetime.datetime.fromtimestamp(self.created).isoformat(timespec="seconds"),
-                 options=self.options)
+                 options=self.options, capture=getattr(self, "capture", {}) or {})
         if self.result:
             d.update(self.result if full else dict(summary=self.result.get("summary")))
         return d
@@ -78,11 +79,13 @@ def _build_result(res, job_dir: str) -> dict:
 class JobManager:
     """Runs reconstructions one after another on a background thread."""
 
-    def __init__(self, out_root: str, run_fn=None):
+    def __init__(self, out_root: str, run_fn=None, archive=None):
+        from .archive import Archive
         self.out_root = out_root
         self.jobs: dict[str, Job] = {}
         self.q: queue.Queue = queue.Queue()
         self.run_fn = run_fn                 # for tests: replaces pipeline.run
+        self.archive = archive or Archive(out_root)
         os.makedirs(out_root, exist_ok=True)
         self._load_finished()
         self.thread = threading.Thread(target=self._worker, daemon=True, name="partscan-jobs")
@@ -90,23 +93,27 @@ class JobManager:
 
     # -- persistence of finished jobs (so the phone can list earlier results after a restart)
     def _load_finished(self):
-        for name in sorted(os.listdir(self.out_root)):
-            jf = os.path.join(self.out_root, name, "job.json")
-            if os.path.exists(jf):
-                try:
-                    d = json.load(open(jf))
-                    j = Job(d["jobId"], os.path.join(self.out_root, name), d.get("options", {}))
-                    j.status, j.progress, j.message, j.error = d["status"], 1.0, d.get("message", ""), d.get("error")
-                    j.created = d.get("created", os.path.getmtime(jf))
-                    j.result = d.get("result")
-                    self.jobs[j.id] = j
-                except Exception as ex:
-                    log.warning("could not load %s: %s", jf, ex)
+        for name, folder in sorted(self.archive.folders().items()):
+            jf = os.path.join(folder, "job.json")
+            try:
+                d = json.load(open(jf))
+                j = Job(d["jobId"], folder, d.get("options", {}))
+                j.status, j.progress, j.message, j.error = d["status"], 1.0, d.get("message", ""), d.get("error")
+                j.created = d.get("created", os.path.getmtime(jf))
+                j.result = d.get("result")
+                j.capture = d.get("capture", {})
+                self.jobs[j.id] = j
+            except Exception as ex:
+                log.warning("could not load %s: %s", jf, ex)
 
     def _save(self, job: Job):
-        with open(os.path.join(job.dir, "job.json"), "w") as fh:
-            json.dump(dict(jobId=job.id, status=job.status, message=job.message, error=job.error, created=job.created,
-                           options=job.options, result=job.result), fh)
+        """job.json (and the CSV / Drive mirror) through the archive; also used for failed jobs."""
+        rec = self.archive.record(job.id, job.dir, "app", job.options, getattr(job, "capture", {}),
+                                  getattr(job, "scan_path", None), res=getattr(job, "res", None), error=job.error,
+                                  tb=getattr(job, "traceback", None), seconds=getattr(job, "seconds", None))
+        job.folder = rec.get("folder", job.dir)
+        job.scan_path = None
+        job.res = None
 
     def submit(self, scan_path: str, options: dict) -> Job:
         job_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
@@ -114,20 +121,28 @@ class JobManager:
         os.makedirs(job_dir, exist_ok=True)
         job = Job(job_id, job_dir, options)
         job.scan_path = scan_path
+        from .archive import capture_info
+        job.capture = capture_info(scan_path)
         self.jobs[job_id] = job
         self.q.put(job)
         return job
 
     def _worker(self):
+        from .archive import JobLog
         while True:
             job = self.q.get()
+            t0 = time.time()
             try:
-                self._run(job)
+                with JobLog(job.dir):
+                    log.info("job %s: %s", job.id, json.dumps(dict(options=job.options, capture=job.capture), default=str))
+                    self._run(job)
             except Exception as ex:
-                log.error(traceback.format_exc())
+                job.traceback = traceback.format_exc()
+                log.error(job.traceback)
                 job.status, job.error, job.message = "error", f"{type(ex).__name__}: {ex}", "failed"
             finally:
                 job.finished = time.time()
+                job.seconds = job.finished - t0
                 try:
                     self._save(job)
                 except Exception as ex:
@@ -152,12 +167,9 @@ class JobManager:
             res = (self.run_fn or pipeline.run)(job.scan_path, job.dir, cfg, progress=prog)
         if note and cfg.use_board:
             res.warnings.insert(0, note)
+        job.res = res
         job.result = _build_result(res, job.dir)
         job.status, job.progress, job.message = "done", 1.0, "done"
-        try:
-            os.remove(job.scan_path)        # the upload is big; the results folder keeps everything that matters
-        except OSError:
-            pass
 
     def list(self, limit: int = 50) -> list:
         jobs = sorted(self.jobs.values(), key=lambda j: j.created, reverse=True)[:limit]
@@ -175,10 +187,15 @@ def new_key() -> str:
     return secrets.token_urlsafe(9)
 
 
-def attach_api(app, out_root: str, api_key: str | None = None, manager: JobManager | None = None) -> JobManager:
-    """Add the /api routes to the FastAPI app that Gradio's launch() returned."""
+def attach_api(app, out_root: str, api_key: str | None = None, manager: JobManager | None = None,
+               archive=None) -> JobManager:
+    """Add the /api routes to the FastAPI app that Gradio's launch() returned. `archive` (partscan.archive.Archive)
+    defaults to the one build_app() set up, so the phone's scans and the web UI's land in the same log."""
     from . import __version__
-    manager = manager or JobManager(out_root)
+    if archive is None:
+        from . import app as appmod
+        archive = appmod.ARCHIVE
+    manager = manager or JobManager(out_root, archive=archive)
     api_root = os.path.join(out_root, "api")
     os.makedirs(api_root, exist_ok=True)
 
@@ -281,6 +298,14 @@ def attach_api(app, out_root: str, api_key: str | None = None, manager: JobManag
         if not job.result or key not in job.result.get("files", {}):
             raise HTTPException(status_code=404, detail="no such file")
         return serve(job, job.result["files"][key], sc)
+
+    @app.get("/api/jobs/{job_id}/log")
+    def job_log(job_id: str, request: Request):
+        sc = check(request)
+        job = get_job(job_id)
+        path = os.path.join(job.dir, "pipeline.log")
+        text = open(path, encoding="utf-8", errors="replace").read() if os.path.exists(path) else ""
+        return with_cookie(JSONResponse(dict(jobId=job_id, log=text[-200000:])), sc)
 
     @app.get("/api/jobs/{job_id}/raw/{name}")
     def job_raw(job_id: str, name: str, request: Request):

@@ -25,7 +25,9 @@ from partscan.api import attach_api  # noqa: E402
 auth = None
 if os.environ.get("PARTSCAN_UI_PASSWORD"):      # optional login for the web page (Space secrets)
     auth = (os.environ.get("PARTSCAN_UI_USER", "partscan"), os.environ["PARTSCAN_UI_PASSWORD"])
-demo = build_app(OUT, drive_dir=None)
+ARCHIVE = os.environ.get("PARTSCAN_ARCHIVE_DIR") or None     # e.g. /data with persistent storage enabled
+demo = build_app(OUT, drive_dir=None, archive_dir=ARCHIVE,
+                 keep_scans=os.environ.get("PARTSCAN_KEEP_SCANS", "1") == "1")
 app, local_url, share_url = launch(demo, OUT, prevent_thread_lock=True, auth=auth)
 attach_api(app, OUT, api_key=os.environ.get("PARTSCAN_API_KEY") or None)   # phone-app API; key = Space secret
 demo.block_thread()

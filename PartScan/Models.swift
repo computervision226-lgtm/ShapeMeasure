@@ -95,6 +95,6 @@ struct ScanOptions {
     var formFields: [(String, String)] {
         [("preset", preset), ("use_board", useBoard ? "1" : "0"), ("board_type", boardType),
          ("check_mm", checkMM), ("check_on", checkOn), ("material", material), ("ref_name", refName),
-         ("ref_mm", refMM.isEmpty ? "0" : refMM), ("ref_apply", refApply ? "1" : "0"), ("client", "PartScan iOS")]
+         ("ref_mm", refMM.isEmpty ? "0" : refMM), ("ref_apply", refApply ? "1" : "0"), ("client", DeviceInfo.clientString)]
     }
 }

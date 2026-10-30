@@ -53,6 +53,8 @@ final class ScanRecorder: NSObject, ObservableObject, ARSessionDelegate {
     private var videoSize = CGSize(width: 1920, height: 1440)
     private var deviceModel = ""
     private var systemVersion = ""
+    private var modelId = ""
+    private var appVersion = ""
 
     // MARK: session
 
@@ -60,6 +62,8 @@ final class ScanRecorder: NSObject, ObservableObject, ARSessionDelegate {
         if deviceModel.isEmpty {                      // UIDevice is main-thread only; startSession runs on main
             deviceModel = UIDevice.current.model
             systemVersion = UIDevice.current.systemVersion
+            modelId = DeviceInfo.modelId
+            appVersion = DeviceInfo.appVersion
         }
         guard Self.lidarSupported else {
             DispatchQueue.main.async {
@@ -170,6 +174,7 @@ final class ScanRecorder: NSObject, ObservableObject, ARSessionDelegate {
             let seconds = max(0, self.lastTimestamp - (self.startTimestamp ?? self.lastTimestamp))
             let size = self.videoSize
             let id = self.scanID
+            let coverage = self.tracker.snapshot()
             self.writer = nil
             self.input = nil
             self.adaptor = nil
@@ -193,14 +198,16 @@ final class ScanRecorder: NSObject, ObservableObject, ARSessionDelegate {
                 // the PNG queue is serial: this runs after the last depth image has been written
                 self.writeQueue.async {
                     self.finishFiles(dir: dir, id: id, rows: rows, intrinsics: intrinsics, frames: frames,
-                                     dropped: dropped, seconds: seconds, size: size, videoOK: ok, videoError: err)
+                                     dropped: dropped, seconds: seconds, size: size, coverage: coverage,
+                                     videoOK: ok, videoError: err)
                 }
             }
         }
     }
 
     private func finishFiles(dir: URL, id: String, rows: [String], intrinsics: simd_float3x3?, frames: Int,
-                             dropped: Int, seconds: Double, size: CGSize, videoOK: Bool, videoError: String?) {
+                             dropped: Int, seconds: Double, size: CGSize, coverage: CoverageTracker.Snapshot,
+                             videoOK: Bool, videoError: String?) {
         var csv = "timestamp, frame, x, y, z, qx, qy, qz, qw, fx, fy, cx, cy, distortion_center_x, distortion_center_y\n"
         csv += rows.joined(separator: "\n") + "\n"
         var note: String?
@@ -213,10 +220,12 @@ final class ScanRecorder: NSObject, ObservableObject, ARSessionDelegate {
             }
             try "timestamp, a_x, a_y, a_z, alpha_x, alpha_y, alpha_z\n"
                 .write(to: dir.appendingPathComponent("imu.csv"), atomically: true, encoding: .utf8)
-            let meta: [String: Any] = ["app": "PartScan iOS", "format": "stray-scanner-1.4", "frames": frames,
-                                       "dropped": dropped, "seconds": seconds, "stride": frameStride,
+            let meta: [String: Any] = ["app": "PartScan iOS", "appVersion": appVersion, "format": "stray-scanner-1.4",
+                                       "frames": frames, "dropped": dropped, "seconds": seconds, "stride": frameStride,
                                        "video": [Int(size.width), Int(size.height)],
-                                       "device": deviceModel, "system": systemVersion]
+                                       "device": deviceModel, "modelId": modelId, "system": systemVersion,
+                                       "coverage": ["low": coverage.low, "mid": coverage.mid,
+                                                    "high": coverage.high, "top": coverage.top]]
             let data = try JSONSerialization.data(withJSONObject: meta, options: [.prettyPrinted])
             try data.write(to: dir.appendingPathComponent("partscan.json"))
         } catch {

@@ -10,7 +10,7 @@ PKG = os.path.join(HERE, "..", "Server", "partscan")
 OUT = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else os.path.join(HERE, "PartScan_LiDAR.ipynb")
 
 MODULES = ["__init__", "config", "geometry", "io_scans", "board", "bundle", "poses", "segment", "depth",
-           "fusion", "meshproc", "measure", "drawings", "viewer", "report", "export", "pipeline", "app", "api"]
+           "fusion", "meshproc", "measure", "drawings", "viewer", "report", "export", "archive", "pipeline", "app", "api"]
 
 INTRO = """# 📐 PartScan — iPhone LiDAR → accurate, measured 3D model of a part
 
@@ -87,7 +87,7 @@ any stage to read or tweak it (re-run the cell, then re-run section 4).
 | `fusion` | GPU TSDF ∩ robust visual hull ∩ support plane, marching cubes |
 | `meshproc`, `measure` | clean-up, canonical part frame, colour, planes / holes / dimensions |
 | `drawings`, `viewer`, `report`, `export` | dimensioned views, interactive 3D viewer, HTML report, files |
-| `pipeline`, `app`, `api` | orchestration, the Gradio interface and the REST API used by the iPhone app |
+| `archive`, `pipeline`, `app`, `api` | scan log / archive, orchestration, the Gradio interface and the REST API used by the iPhone app |
 """
 
 DRIVE_MD = """## 3 · Start PartScan
@@ -99,6 +99,10 @@ DRIVE_MD = """## 3 · Start PartScan
   screen. Google's Colab FAQ disallows *"bypassing the notebook UI to interact primarily via a web UI"* on **free**
   runtimes (allowed with a positive compute-unit balance), so it is off by default. The runtime must stay alive:
   keep this notebook tab open on a computer (Colab disconnects idle free sessions after a while).
+* **Scans log** (tab 4 of the app): every scan from the phone or this page is recorded on Drive - `scan_log.csv`
+  (open it in Google Sheets) plus one folder per scan under `Scans/` with the raw scan, all results, `pipeline.log`
+  and `job.json` - in *MyDrive/ShapeMeasure* if that folder exists, otherwise *MyDrive/PartScan*. The tab shows
+  the log, the capture details of each scan, its QA images and log, and can re-run any archived scan.
 """
 
 LAUNCH = """#@title 3 · Start the app { display-mode: "form" }

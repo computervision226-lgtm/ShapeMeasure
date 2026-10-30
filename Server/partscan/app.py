@@ -4,8 +4,10 @@ from __future__ import annotations
 import datetime as _dt
 import glob
 import html
+import json
 import logging
 import os
+import time
 import traceback
 
 from .config import BOARDS, MATERIAL_DENSITY_G_CM3, PRESETS, SCALE_CHECKS, BoardSpec, board_from_check, make_config
@@ -124,6 +126,9 @@ def boards_folder_for(drive_dir: str) -> str:
     return shape if os.path.isdir(shape) else drive_dir
 
 
+ARCHIVE = None          # partscan.archive.Archive set up by build_app(); attach_api() shares it
+
+
 def _viewer_iframe(path, height=560):
     if not path:
         return ""
@@ -156,49 +161,68 @@ def _summary(res):
     return "\n\n".join(lines)
 
 
-def build_app(out_root: str = "/content/partscan_runs", drive_dir: str | None = None):
+def build_app(out_root: str = "/content/partscan_runs", drive_dir: str | None = None, archive_dir: str | None = None,
+              keep_scans: bool = True):
+    """The Gradio interface. drive_dir: Google Drive folder with the scans (Colab). The scan log / archive goes to
+    archive_dir, by default MyDrive/ShapeMeasure (if it exists) or the Drive scan folder, else out_root."""
     import gradio as gr
 
     from . import pipeline
+    from .archive import Archive, JobLog, capture_info
     from .board import render_board_pdf
     from .export import measurement_rows
     from .report import quality_rows
 
+    global ARCHIVE
     os.makedirs(out_root, exist_ok=True)
+    if archive_dir is None and drive_dir:
+        archive_dir = boards_folder_for(drive_dir)
+    ARCHIVE = archive = Archive(out_root, archive_dir, keep_scans=keep_scans)
+    log.info("scan log and archive: %s", archive.describe())
 
     def run(upload, drive_file, preset, use_board, board_type, check_mm, check_on, material, ref_name, ref_val,
-            ref_apply, progress=gr.Progress()):
-        path = upload if upload else drive_file
+            ref_apply, progress=gr.Progress(), source="web", scan_override=None):
+        path = scan_override or (upload if upload else drive_file)
         if not path:
             raise gr.Error("Upload a scan (.zip / .r3d) or pick one from Google Drive first.")
+        options = dict(preset=preset, use_board=bool(use_board), board_type=board_type, check_mm=check_mm,
+                       check_on=check_on, material=material, ref_name=ref_name or "", ref_mm=ref_val or 0,
+                       ref_apply=bool(ref_apply), client=source, upload=os.path.basename(str(path).rstrip("/")))
+        job_id = _dt.datetime.now().strftime("%Y%m%d-%H%M%S") + "-web"
+        run_dir = os.path.join(out_root, job_id)
+        os.makedirs(run_dir, exist_ok=True)
+        capture = capture_info(path)
+        t0 = time.time()
+        res, err, tb = None, None, None
         try:
-            board, note = board_from_check(board_type, float(check_mm or 0), check_on)
-            cfg = make_config(preset, use_board=bool(use_board), board=board, material=material,
-                              reference_name=ref_name or "", reference_mm=float(ref_val or 0),
-                              apply_reference_scale=bool(ref_apply))
-            stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-            run_dir = os.path.join(out_root, stamp)
-            progress(0, desc="starting (the first run downloads the AI models, about 2 GB)")
-            if not pipeline.RUN_LOCK.acquire(timeout=1.0):
-                progress(0, desc="waiting for another scan to finish")
-                pipeline.RUN_LOCK.acquire()
-            try:
-                res = pipeline.run(path, run_dir, cfg, progress=lambda p, m: progress(p, desc=m))
-            finally:
-                pipeline.RUN_LOCK.release()
-            if note and use_board:
-                res.warnings.insert(0, note)
-            if drive_dir and res.files.get("zip"):
-                try:   # keep a copy of the results next to the scans
-                    import shutil
-                    os.makedirs(os.path.join(drive_dir, "results"), exist_ok=True)
-                    base = os.path.splitext(os.path.basename(str(path).rstrip("/")))[0]
-                    shutil.copy(res.files["zip"], os.path.join(drive_dir, "results", f"{base}_{stamp}.zip"))
-                except Exception as ex:
-                    log.warning("could not copy results to Drive: %s", ex)
+            with JobLog(run_dir):
+                log.info("job %s: %s", job_id, json.dumps(dict(options=options, capture=capture), default=str))
+                board, note = board_from_check(board_type, float(check_mm or 0), check_on)
+                cfg = make_config(preset, use_board=bool(use_board), board=board, material=material,
+                                  reference_name=ref_name or "", reference_mm=float(ref_val or 0),
+                                  apply_reference_scale=bool(ref_apply))
+                progress(0, desc="starting (the first run downloads the AI models, about 2 GB)")
+                if not pipeline.RUN_LOCK.acquire(timeout=1.0):
+                    progress(0, desc="waiting for another scan to finish")
+                    pipeline.RUN_LOCK.acquire()
+                try:
+                    res = pipeline.run(path, run_dir, cfg, progress=lambda p, m: progress(p, desc=m))
+                finally:
+                    pipeline.RUN_LOCK.release()
+                if note and use_board:
+                    res.warnings.insert(0, note)
         except Exception as ex:
-            log.error(traceback.format_exc())
-            raise gr.Error(f"{type(ex).__name__}: {ex}", duration=None)
+            tb = traceback.format_exc()
+            err = f"{type(ex).__name__}: {ex}"
+            log.error(tb)
+        # an uploaded file is a temporary copy: keep it with the job; a Drive / archived scan stays where it is
+        try:
+            archive.record(job_id, run_dir, source, options, capture, path, res=res, error=err, tb=tb,
+                           seconds=time.time() - t0, scan_keep="move" if (upload and not scan_override) else "reference")
+        except Exception as ex:
+            log.warning("could not record the scan: %s", ex)
+        if err:
+            raise gr.Error(err, duration=None)
         f = res.files
         downloads = [f[k] for k in ("zip", "stl", "obj", "ply", "glb", "report", "viewer", "csv", "json")
                      if f.get(k) and os.path.exists(f[k])]
@@ -250,7 +274,8 @@ def build_app(out_root: str = "/content/partscan_runs", drive_dir: str | None = 
                         check_on = gr.Dropdown(list(SCALE_CHECKS), value="printed 100 mm ruler",
                                                label="Measured on")
                     with gr.Accordion("Caliper check (optional, recommended)", open=False):
-                        ref_name = gr.Dropdown(pipeline.REFERENCE_CHOICES, label="Feature you measured by hand")
+                        ref_name = gr.Dropdown([""] + pipeline.REFERENCE_CHOICES, value="",
+                                               label="Feature you measured by hand")
                         ref_val = gr.Number(0, label="Your measurement (mm)")
                         ref_apply = gr.Checkbox(False, label="Rescale the model so this feature matches exactly",
                                                 info="Only length/width/height, and only for corrections up to 3 %.")
@@ -282,14 +307,130 @@ def build_app(out_root: str = "/content/partscan_runs", drive_dir: str | None = 
             pb.click(make_board, [paper], pdf)
         with gr.Tab("3 · Guide"):
             gr.Markdown(GUIDE)
+        with gr.Tab("4 · Scans log"):
+            gr.Markdown(f"Every scan (phone app and this page) is recorded in **`{archive.csv_path}`** (opens in Google "
+                        f"Sheets) with its folder under **`{archive.scans_dir}`**: raw scan, results, `pipeline.log`, "
+                        f"`job.json`. Raw scans are {'kept' if archive.keep_scans else 'not kept'}.", elem_classes="ps-small")
+            with gr.Row():
+                lb = gr.Button("↻ Refresh", scale=1, min_width=90)
+                job_pick = gr.Dropdown([], label="Open a scan", interactive=True, scale=4)
+            log_table = gr.Dataframe(headers=LOG_COLUMNS, label="Scans (newest first)", interactive=False, wrap=True)
+            with gr.Row():
+                with gr.Column(scale=1, min_width=300):
+                    job_md = gr.Markdown("")
+                    job_files = gr.File(label="Files of this scan (raw scan, results, log)", file_count="multiple",
+                                        interactive=False)
+                    rerun = gr.Button("Re-run this scan with the settings of tab 1", variant="primary")
+                with gr.Column(scale=2, min_width=320):
+                    job_qa = gr.Image(label="Silhouette check", type="filepath", interactive=False)
+                    job_drawing = gr.Image(label="Dimensioned views", type="filepath", interactive=False)
+                    job_log = gr.Textbox(label="pipeline.log", lines=18, max_lines=40, interactive=False)
+
+            def scan_log():
+                rows = _log_rows(archive)
+                return rows, gr.update(choices=[r[1] for r in rows], value=(rows[0][1] if rows else None))
+
+            def open_job(job_id):
+                return _job_details(archive, job_id)
+
+            def rerun_job(job_id, preset, use_board, board_type, check_mm, check_on, material, ref_name, ref_val,
+                          ref_apply, progress=gr.Progress()):
+                rec, folder = archive.load(job_id) if job_id else (None, None)
+                scan = _scan_file(folder, rec) if folder else None
+                if not scan:
+                    raise gr.Error("This scan's raw data was not kept, so it cannot be re-run.")
+                return run(None, None, preset, use_board, board_type, check_mm, check_on, material, ref_name, ref_val,
+                           ref_apply, progress=progress, source=f"rerun of {job_id}", scan_override=scan)
+
+            lb.click(scan_log, None, [log_table, job_pick])
+            job_pick.change(open_job, [job_pick], [job_md, job_files, job_qa, job_drawing, job_log])
+            rerun.click(rerun_job, [job_pick, preset, use_board, board_type, check_mm, check_on, material, ref_name,
+                                    ref_val, ref_apply], [status, viewer, table, drawing, files, m3d, quality, qa])
+            demo.load(scan_log, None, [log_table, job_pick])
     return demo
+
+
+LOG_COLUMNS = ["time", "job_id", "source", "status", "device", "L×W×H (mm)", "holes", "IoU", "outline ratio",
+               "depth σ (mm)", "s", "warnings / error"]
+
+
+def _log_rows(archive) -> list:
+    rows = []
+    for r in reversed(archive.read_csv()):
+        dims = " × ".join(str(r.get(k, "")) for k in ("length", "width", "height")) if r.get("length") else ""
+        rows.append([r.get("time", "")[:16].replace("T", " "), r.get("job_id", ""), r.get("source", ""), r.get("status", ""),
+                     r.get("device", "") or r.get("client", ""), dims, r.get("holes", ""), r.get("silhouette_iou", ""),
+                     r.get("outline_ratio", ""), r.get("depth_fit_sigma_mm", ""), r.get("processing_s", ""),
+                     (r.get("error") or r.get("warnings") or "")[:160]])
+    return rows
+
+
+def _scan_file(folder, rec) -> str | None:
+    """The raw scan of an archived job: kept in its folder, or referenced (Drive scan, earlier job)."""
+    name = (rec or {}).get("scan_file")
+    if name and os.path.exists(os.path.join(folder, name)):
+        return os.path.join(folder, name)
+    for n in ("scan.zip", "scan.r3d"):
+        if os.path.exists(os.path.join(folder, n)):
+            return os.path.join(folder, n)
+    src = (rec or {}).get("scan_source")
+    return src if src and os.path.exists(src) else None
+
+
+def _job_details(archive, job_id):
+    import gradio as gr
+    rec, folder = archive.load(job_id) if job_id else (None, None)
+    if not folder:
+        return "Pick a scan.", None, None, None, ""
+    rec = rec or {}
+    q, c, o = rec.get("quality", {}), rec.get("capture", {}), rec.get("options", {})
+    res = rec.get("result") or {}
+    s = res.get("summary", {})
+    lines = [f"### {job_id}  —  {rec.get('status', '?')}",
+             f"**Source:** {rec.get('source', '?')} · **client:** {o.get('client', '?')} · **upload:** {o.get('upload', '?')} "
+             f"({(rec.get('uploadBytes') or 0) / 1e6:.0f} MB)"]
+    if c:
+        cov = c.get("coverage") or {}
+        lines.append(f"**Capture:** {c.get('modelId') or c.get('device', '?')} · {c.get('system', '')} · app {c.get('appVersion', '?')} · "
+                     f"{c.get('frames', '?')} frames / {c.get('seconds', 0):.0f} s · stride {c.get('stride', '?')} · "
+                     f"dropped {c.get('dropped', 0)}" + (f" · coverage low/mid/high/top {int(100 * cov.get('low', 0))}/"
+                                                       f"{int(100 * cov.get('mid', 0))}/{int(100 * cov.get('high', 0))}/{int(100 * cov.get('top', 0))} %"
+                                                       if cov else ""))
+    lines.append(f"**Options:** {o.get('preset', '?')} · board {o.get('board_type', '?') if o.get('use_board', True) else 'none'} · "
+                 f"check {o.get('check_mm', '?')} mm · {o.get('material', '?')}"
+                 + (f" · caliper {o.get('ref_name')} = {o.get('ref_mm')} mm" if o.get("ref_name") else ""))
+    if s:
+        lines.append(f"**Result:** {s.get('length')} × {s.get('width')} × {s.get('height')} mm ({s.get('how')}), "
+                     f"{s.get('holes')} hole(s), scale from {s.get('scaleReference')}, {rec.get('processingSeconds', 0) or 0:.0f} s")
+    if q:
+        lines.append("**Quality:** " + " · ".join(f"{k} {round(v, 3) if isinstance(v, float) else v}" for k, v in q.items()
+                                                  if k not in ("scale_reference", "depth_model", "segmenter")))
+    for w in res.get("warnings", []):
+        lines.append(f"> ⚠️ {w}")
+    if rec.get("error"):
+        lines.append(f"> ❌ {rec['error']}")
+    files = []
+    for n in sorted(os.listdir(folder)):
+        p = os.path.join(folder, n)
+        if os.path.isfile(p) and not n.startswith("."):
+            files.append(p)
+    qa = os.path.join(folder, "qa_silhouettes.jpg")
+    drawing = os.path.join(folder, "drawing.png")
+    logp = os.path.join(folder, "pipeline.log")
+    text = open(logp, encoding="utf-8", errors="replace").read()[-30000:] if os.path.exists(logp) else "(no log)"
+    if rec.get("traceback"):
+        text += "\n\n" + rec["traceback"]
+    return ("\n\n".join(lines), files or None, qa if os.path.exists(qa) else None,
+            drawing if os.path.exists(drawing) else None, text)
 
 
 def launch(demo, out_root: str, share: bool = False, debug: bool = False, height: int = 1100, **kw):
     """Start the app. pwa=True makes it installable on a phone (Safari: Share -> Add to Home Screen)."""
     import gradio as gr
     theme = gr.themes.Soft(primary_hue="orange", neutral_hue="slate")
-    return demo.launch(share=share, debug=debug, allowed_paths=[out_root], theme=theme, css=CSS,
+    paths = [out_root] + ([ARCHIVE.archive_dir] if ARCHIVE is not None and ARCHIVE.archive_dir else [])
+    paths += [p for p in kw.pop("allowed_paths", [])]
+    return demo.launch(share=share, debug=debug, allowed_paths=paths, theme=theme, css=CSS,
                        height=height, show_error=True, pwa=True, **kw)
 
 

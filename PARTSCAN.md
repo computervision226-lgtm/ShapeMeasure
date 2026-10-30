@@ -74,6 +74,25 @@ needs your Hugging Face token in the app (read access).
 5. Scans are kept under *Files → On My iPhone → PartScan* too, so a scan can also be moved to *Google Drive ›
    PartScan* and processed from the notebook's own interface.
 
+## Tracking and debugging scans
+
+Everything that goes through the server is recorded, from the phone app and from the web page alike:
+
+| What | Where |
+|---|---|
+| One row per scan: time, job id, source, phone model, iOS and app version, frames / duration / stride / dropped frames, ring coverage, all options, result dimensions and holes, every quality metric, processing time, warnings, error | `scan_log.csv` — opens directly in Google Sheets |
+| One folder per scan: the **raw scan** (`scan.zip`, so it can be re-run), all result files, `qa_silhouettes.jpg`, `pipeline.log`, `job.json` (options, capture info, quality, warnings, error + traceback) | `Scans/<job id>/` |
+
+On Colab both live on Google Drive in *MyDrive/ShapeMeasure* (or *MyDrive/PartScan* when there is no ShapeMeasure
+folder), so they survive the runtime, and the phone can still open old results after a notebook restart. On a
+Hugging Face Space set `PARTSCAN_ARCHIVE_DIR` (persistent storage) and optionally `PARTSCAN_KEEP_SCANS=0`.
+
+The web app's **4 · Scans log** tab lists the log, shows one scan's capture details, quality numbers, warnings,
+QA montage, drawing, files and pipeline log, and can **re-run** an archived scan with the settings of tab 1 (new
+server code, different preset, caliper reference…). The phone shows each result's job id, and its *Server* tab
+shows the identifiers it sends (app version/build, model id, iOS version). The API has the same data:
+`GET /api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/log`.
+
 ## Accuracy (honest)
 
 The reconstruction pipeline was validated on synthetic iPhone captures (see the notebook's last section): between
