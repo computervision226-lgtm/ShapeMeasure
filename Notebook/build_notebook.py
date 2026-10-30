@@ -36,7 +36,8 @@ Scan one small part (a bracket, housing, fixture, casting…) with an **iPhone 1
 ### You need
 * **iPhone 17 Pro or 17 Pro Max** (iPhone 12 Pro – 16 Pro Max and LiDAR iPad Pros work too). ⚠️ The plain
   **iPhone 17 and iPhone Air have no LiDAR.**
-* The free app **Stray Scanner** (App Store). Record3D `.r3d`, Polycam *raw data* and 3D Scanner App *All Data* zips also work.
+* The **PartScan iPhone app** (TestFlight, built from this repository) — it records, uploads and shows the results.
+  Without it: the free app **Stray Scanner** (App Store); Record3D `.r3d`, Polycam *raw data* and 3D Scanner App zips also work.
 * The **PartScan board** — make the PDF in the app's tab *2 · Board* (or use the board PDFs that came with this
   notebook), print it at 100 % and measure its printed 100 mm ruler; you enter that value in the app.
 * A **GPU runtime**: *Runtime → Change runtime type → T4 GPU* (free tier is fine).
@@ -44,13 +45,13 @@ Scan one small part (a bracket, housing, fixture, casting…) with an **iPhone 1
 ### Quick start
 1. **Runtime → Run all.** The app appears in section 3 (the first run downloads ≈2 GB of model weights).
 2. Tab **2 · Board** → print at 100 % → measure the printed 100 mm ruler.
-3. Tab **3 · Guide** → record with Stray Scanner → *Share → Save to Files → Google Drive › PartScan* →
-   press ↻ in tab 1, pick the scan → **Build 3D model** (roughly 10 min on a T4; *Fast* about half).
+3. **With the PartScan iPhone app:** set `PUBLIC_LINK = True` in section 3 before running it — the cell shows a
+   QR code; in the app's *Server* tab tap *Scan the QR code*, then record and *Upload & build* (roughly 10 min on a
+   T4; *Fast* about half). **Without the app:** record with Stray Scanner → *Share → Save to Files → Google Drive ›
+   PartScan* → press ↻ in tab 1, pick the scan → **Build 3D model**.
 
-**Using it on the iPhone:** set `PUBLIC_LINK = True` in section 3 — the cell then shows a QR code; scan it, and in
-Safari choose *Share → Add to Home Screen* to install PartScan as an app on the phone (the notebook keeps running
-the heavy lifting on the GPU). This needs Colab Pro / a compute-unit balance: Google's FAQ disallows using a
-**free** runtime mainly through a web UI. For a permanent address, see *Hosting it yourself* at the end.
+The public link needs Colab Pro / a compute-unit balance (Google's FAQ disallows using a **free** runtime mainly
+through a web link) and the notebook tab must stay open. For a permanent address, see *Hosting it yourself* at the end.
 """
 
 SETUP = """#@title 1 · Setup (≈1 min) { display-mode: "form" }
