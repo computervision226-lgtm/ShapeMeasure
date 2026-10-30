@@ -14,23 +14,23 @@ Only iPhones with LiDAR work: **iPhone 12 Pro → 17 Pro / Pro Max** (not the pl
 
 The repository already contains a working Codemagic setup for ShapeMeasure; PartScan reuses it.
 
-1. **Register the app with Apple** (5 minutes, once): [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list)
-   → new App ID `com.maged.partscan` (explicit, no capabilities needed). Then
-   [App Store Connect](https://appstoreconnect.apple.com) → Apps → **+ New App** → iOS, name *PartScan*, that bundle ID,
-   SKU `partscan-ios`. *(Want to skip this? Set both bundle IDs in the workflow to your existing
-   `com.maged.shapemeasure` — PartScan then uploads as a new build of that app record.)*
+1. **Apple**: nothing to register. PartScan uses the existing ShapeMeasure bundle ID `com.maged.shapemeasure`,
+   so its builds appear under the **ShapeMeasure** app in App Store Connect / TestFlight as version **1.0.x**
+   (ShapeMeasure's own builds are 0.1.x). On the phone the two are the same app slot: installing a PartScan build
+   replaces ShapeMeasure, and installing a ShapeMeasure build replaces PartScan. *(To have both installed at once,
+   register a second App ID, e.g. `com.maged.partscan`, create its app record, and put it in both bundle-ID fields
+   of the `partscan-testflight` workflow.)*
 2. **Codemagic**: the repository is already connected and the Developer Portal integration `shapemeasure-apple`
-   exists (CODEMAGIC.md). Nothing to add: the `partscan-testflight` workflow uses the same integration, and
-   `ios_signing` fetches or creates the distribution certificate and profile for the bundle ID automatically.
-   Check the three values at the top of the workflow in `codemagic.yaml` (`integrations.app_store_connect`,
-   `ios_signing.bundle_identifier`, `vars.BUNDLE_ID`).
+   exists (CODEMAGIC.md). Nothing to add: the `partscan-testflight` workflow uses the same integration, certificate
+   and provisioning profile as ShapeMeasure.
 3. **Start a build**: Codemagic → *Start new build* → this branch → workflow **PartScan TestFlight**. The build
    takes ~10 min and uploads the signed IPA to App Store Connect. *If the Swift compile fails*: open the log, copy
    the first `error:` line with its file/line, and send it back — the code was written without a Mac, so the first
    cloud build is its first compile.
-4. **TestFlight**: App Store Connect → PartScan → TestFlight → *Internal Testing* → **+** → create a group, add
-   yourself, and turn on **Enable automatic distribution** so every new build is pushed to the group. Install
-   [TestFlight](https://apps.apple.com/app/testflight/id899247664) on the iPhone, accept the invitation, install PartScan.
+4. **TestFlight**: App Store Connect → ShapeMeasure → TestFlight → the **1.0.0** build → add it to your internal
+   group (or turn on **Enable automatic distribution** on the group so every new build is pushed by itself). In the
+   [TestFlight](https://apps.apple.com/app/testflight/id899247664) app on the iPhone, pick the 1.0.0 build and
+   install — the icon and name on the phone are PartScan's.
    (`BUILD_NUMBER_OFFSET` in the workflow: raise it if Apple complains about a duplicate build number.)
 
 ## 2 · Start a server

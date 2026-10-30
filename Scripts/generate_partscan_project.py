@@ -36,7 +36,7 @@ def main():
                    'SWIFT_STRICT_CONCURRENCY':'minimal','CODE_SIGN_STYLE':'Automatic','DEVELOPMENT_TEAM':'',
                    'INFOPLIST_FILE':'PartScan/Info.plist','GENERATE_INFOPLIST_FILE':'NO','TARGETED_DEVICE_FAMILY':'1',
                    'SUPPORTED_PLATFORMS':'iphoneos iphonesimulator','SUPPORTS_MACCATALYST':'NO',
-                   'MARKETING_VERSION':'0.1.0','CURRENT_PROJECT_VERSION':'1',
+                   'MARKETING_VERSION':'1.0.0','CURRENT_PROJECT_VERSION':'1',
                    'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks'}
     configs={}
     for scope in ('project','target'):
