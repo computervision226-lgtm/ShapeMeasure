@@ -91,36 +91,37 @@ def _list_drive(folder):
     return out
 
 
-BOARD_FILES = (("PartScan_board_Letter.pdf", "Letter", "Standard 8x6 (Letter / A4)", True),
-               ("PartScan_board_Letter_no_text.pdf", "Letter", "Standard 8x6 (Letter / A4)", False),
-               ("PartScan_board_A4.pdf", "A4", "Standard 8x6 (Letter / A4)", True),
-               ("PartScan_board_A3.pdf", "A3", "Large 11x7 (A3 / Tabloid)", True),
-               ("PartScan_board_Tabloid.pdf", "Tabloid", "Large 11x7 (A3 / Tabloid)", True))
+BOARD_PAPERS = (("Letter", "Standard 8x6 (Letter / A4)"), ("A4", "Standard 8x6 (Letter / A4)"),
+                ("A3", "Large 11x7 (A3 / Tabloid)"), ("Tabloid", "Large 11x7 (A3 / Tabloid)"))
+BOARD_SETS = (("Boards", True), ("Boards_no_text", False))     # sub-folder, captions on the print?
 
 
-def export_boards(folder: str) -> list:
-    """Write every printable board PDF into `folder` (skipping the ones already there). Returns the paths."""
+def export_boards(base_folder: str) -> list:
+    """Write the printable boards under `base_folder`: Boards/ (with captions) and Boards_no_text/ (pattern and
+    100 mm ruler only), one PDF per paper size. Files that already exist are kept. Returns the paths."""
     from .board import render_board_pdf
-    os.makedirs(folder, exist_ok=True)
     out = []
-    for name, paper, board_name, text in BOARD_FILES:
-        path = os.path.join(folder, name)
-        if not os.path.exists(path):
-            try:
-                render_board_pdf(BoardSpec(**BOARDS[board_name]), path, paper=paper, text=text)
-            except Exception as ex:
-                log.warning("could not write %s: %s", name, ex)
-                continue
-        out.append(path)
+    for sub, text in BOARD_SETS:
+        folder = os.path.join(base_folder, sub)
+        os.makedirs(folder, exist_ok=True)
+        for paper, board_name in BOARD_PAPERS:
+            path = os.path.join(folder, f"PartScan_board_{paper}{'' if text else '_no_text'}.pdf")
+            if not os.path.exists(path):
+                try:
+                    render_board_pdf(BoardSpec(**BOARDS[board_name]), path, paper=paper, text=text)
+                except Exception as ex:
+                    log.warning("could not write %s: %s", path, ex)
+                    continue
+            out.append(path)
     return out
 
 
 def boards_folder_for(drive_dir: str) -> str:
-    """Where the boards go on Google Drive: MyDrive/ShapeMeasure/Boards if that project folder exists,
-    otherwise next to the scans in MyDrive/PartScan/Boards."""
+    """Where the board folders go on Google Drive: MyDrive/ShapeMeasure if that project folder exists,
+    otherwise next to the scans in MyDrive/PartScan."""
     my_drive = os.path.dirname(os.path.abspath(drive_dir.rstrip("/")))
     shape = os.path.join(my_drive, "ShapeMeasure")
-    return os.path.join(shape if os.path.isdir(shape) else drive_dir, "Boards")
+    return shape if os.path.isdir(shape) else drive_dir
 
 
 def _viewer_iframe(path, height=560):
@@ -221,7 +222,7 @@ def build_app(out_root: str = "/content/partscan_runs", drive_dir: str | None = 
         try:
             folder = boards_folder_for(drive_dir)
             if export_boards(folder):
-                log.info("printable boards are in %s", folder)
+                log.info("printable boards are in %s (Boards, Boards_no_text)", folder)
         except Exception as ex:
             log.warning("could not export the boards to Drive: %s", ex)
 
