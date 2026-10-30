@@ -1,6 +1,24 @@
 # Commit the CONTENTS of the ShapeMeasure folder at your repository root.
 # Setup instructions: CODEMAGIC.md. Replace both example bundle IDs below.
 workflows:
+  shapemeasure-lidar-check:
+    name: ShapeMeasure LiDAR build check
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+    scripts:
+      - name: Check geometry and point cloud exporters
+        script: |
+          set -euo pipefail
+          bash Scripts/verify.sh
+      - name: Compile iPhone app without signing
+        script: |
+          set -euo pipefail
+          bash Scripts/check_ios.sh 2>&1 | tee /tmp/shapemeasure-ios-build.log
+    artifacts:
+      - /tmp/shapemeasure-ios-build.log
+      - .build-ios/Logs/Build/*.xcactivitylog
   shapemeasure-testflight:
     name: ShapeMeasure TestFlight
     max_build_duration: 60
@@ -16,7 +34,7 @@ workflows:
         BUNDLE_ID: "com.maged.shapemeasure"
         BUILD_NUMBER_OFFSET: "0"
     scripts:
-      - name: Check geometry and shapefile exporter
+      - name: Check geometry and point cloud exporters
         script: |
           set -euo pipefail
           bash Scripts/verify.sh

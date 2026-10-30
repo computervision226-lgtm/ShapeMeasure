@@ -23,6 +23,70 @@ static double dot(SCPoint3 a, SCPoint3 b) { return a.x*b.x+a.y*b.y+a.z*b.z; }
 static double norm(SCPoint3 a) { return sqrt(dot(a,a)); }
 static int finite_point(SCPoint3 a) { return isfinite(a.x)&&isfinite(a.y)&&isfinite(a.z); }
 
+int sc_depth_unproject(float u,float v,float depth,float fx,float fy,
+                       float cx,float cy,const float *m,SCPoint3 *world) {
+    if(!m||!world||!isfinite(u)||!isfinite(v)||!isfinite(depth)||depth<=0||
+       !isfinite(fx)||!isfinite(fy)||fx<=0||fy<=0||!isfinite(cx)||!isfinite(cy)) return 0;
+    for(int i=0;i<16;i++) if(!isfinite(m[i])) return 0;
+    /* A CV pixel has Y down / Z forward; an ARKit camera has Y up / Z back. */
+    double x=((double)u-cx)*depth/fx, y=-((double)v-cy)*depth/fy, z=-depth;
+    SCPoint3 p={m[0]*x+m[4]*y+m[8]*z+m[12],
+                m[1]*x+m[5]*y+m[9]*z+m[13],
+                m[2]*x+m[6]*y+m[10]*z+m[14]};
+    if(!finite_point(p)||fabs(p.x)>1000||fabs(p.y)>1000||fabs(p.z)>1000) return 0;
+    *world=p; return 1;
+}
+static uint8_t cloud_channel(double v) {
+    return (uint8_t)lround(fmax(0,fmin(255,v)));
+}
+void sc_camera_rgb(uint8_t y,uint8_t cb,uint8_t cr,int full,int bt709,uint8_t *rgb) {
+    if(!rgb) return;
+    double yy=y, b=(double)cb-128, r=(double)cr-128;
+    if(!full) { yy=((double)y-16)*255/219; b*=255.0/224; r*=255.0/224; }
+    rgb[0]=cloud_channel(yy+(bt709?1.5748:1.402)*r);
+    rgb[1]=cloud_channel(yy-(bt709?0.187324:0.344136)*b-(bt709?0.468124:0.714136)*r);
+    rgb[2]=cloud_channel(yy+(bt709?1.8556:1.772)*b);
+}
+static int validate_cloud(const char *path,const SCCloudPoint *p,int32_t n,char *e,size_t en) {
+    if(!path||!path[0]||!p||n<=0||n>500000) return fail(e,en,"Point cloud is empty or exceeds 500,000 points.");
+    for(int32_t i=0;i<n;i++) if(!isfinite(p[i].x)||!isfinite(p[i].y)||!isfinite(p[i].z)||
+        fabs(p[i].x)>1000||fabs(p[i].y)>1000||fabs(p[i].z)>1000||p[i].confidence>2)
+        return fail(e,en,"Invalid point cloud coordinate or confidence.");
+    return 1;
+}
+int sc_write_cloud_ply(const char *path,const SCCloudPoint *p,int32_t n,char *e,size_t en) {
+    if(!validate_cloud(path,p,n,e,en)) return 0;
+    FILE *f=fopen(path,"wb"); if(!f) return fail(e,en,"Cannot create point cloud PLY.");
+    int ok=fprintf(f,"ply\nformat binary_little_endian 1.0\n"
+        "comment ShapeMeasure ARKit sceneDepth point cloud\n"
+        "comment units metres; right-handed ARKit world; Y up; no geographic CRS\n"
+        "comment confidence 0 low 1 medium 2 high; voxel sampled\n"
+        "element vertex %d\nproperty float x\nproperty float y\nproperty float z\n"
+        "property uchar red\nproperty uchar green\nproperty uchar blue\n"
+        "property uchar confidence\nend_header\n",n)>0;
+    for(int32_t i=0;ok&&i<n;i++) {
+        unsigned char record[16]; float coords[3]={p[i].x,p[i].y,p[i].z};
+        for(int j=0;j<3;j++) {
+            uint32_t bits; memcpy(&bits,&coords[j],4);
+            for(int k=0;k<4;k++) record[j*4+k]=(unsigned char)(bits>>(8*k));
+        }
+        record[12]=p[i].red; record[13]=p[i].green; record[14]=p[i].blue; record[15]=p[i].confidence;
+        ok=fwrite(record,1,sizeof(record),f)==sizeof(record);
+    }
+    if(fclose(f)!=0) ok=0;
+    if(!ok) { remove(path); return fail(e,en,"Could not finish writing point cloud PLY."); }
+    return 1;
+}
+int sc_write_cloud_xyz(const char *path,const SCCloudPoint *p,int32_t n,char *e,size_t en) {
+    if(!validate_cloud(path,p,n,e,en)) return 0;
+    FILE *f=fopen(path,"wb"); if(!f) return fail(e,en,"Cannot create point cloud XYZ.");
+    int ok=1;
+    for(int32_t i=0;ok&&i<n;i++) ok=fprintf(f,"%.9g %.9g %.9g\n",p[i].x,p[i].y,p[i].z)>0;
+    if(fclose(f)!=0) ok=0;
+    if(!ok) { remove(path); return fail(e,en,"Could not finish writing point cloud XYZ."); }
+    return 1;
+}
+
 typedef struct { double x,y; } XY;
 static int compare_xy(const void *pa, const void *pb) {
     const XY *a=pa,*b=pb;

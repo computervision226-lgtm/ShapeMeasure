@@ -9,6 +9,7 @@ struct HomeView: View {
     @State private var photos: [PhotosPickerItem] = []
     @State private var movie: PhotosPickerItem?
     @State private var showRecorder = false
+    @State private var showLiDAR = false
     @State private var pendingDelete: ScanRecord?
     var body: some View {
         NavigationStack(path: $store.path) {
@@ -20,8 +21,15 @@ struct HomeView: View {
                         Text("Capture every side. Measure in 3D. Export your GIS files.").foregroundStyle(.secondary)
                     }.padding(.top, 8)
                     Panel {
+                        Label("Direct iPhone LiDAR", systemImage: "sensor.fill").font(.headline).foregroundStyle(Palette.mint)
+                        Button { showLiDAR = true } label: { Label("LiDAR Point Cloud", systemImage: "cube.transparent") }
+                            .buttonStyle(FilledButton())
+                        Text(LiDARScanner.supported ? "Read rear depth frames directly. Preview and save measured XYZ points as PLY and XYZ files." : "Capture needs a LiDAR-equipped iPhone Pro. Open to share any previously saved clouds.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Panel {
                         HStack { Image(systemName: store.supported ? "checkmark.circle.fill" : "info.circle").foregroundStyle(Palette.mint)
-                            Text(store.supported ? "On-device LiDAR capture available" : "Capture requires a supported LiDAR iPhone").font(.subheadline) }
+                            Text(store.supported ? "Guided Object Capture available" : "Object Capture requires a supported iPhone").font(.subheadline) }
                         Button { store.startGuided() } label: { Label("Scan an object", systemImage: "camera.viewfinder") }
                             .buttonStyle(FilledButton()).disabled(!store.supported)
                         Text("Best for small, rigid objects. Circle the object slowly at several heights.").font(.footnote).foregroundStyle(.secondary)
@@ -81,6 +89,7 @@ struct HomeView: View {
         .fullScreenCover(isPresented: $showRecorder) {
             CameraRecorder(onVideo: { store.importRecordedVideo($0) }, onError: { store.notice = AppNotice(message: $0) }).ignoresSafeArea()
         }
+        .fullScreenCover(isPresented: $showLiDAR) { LiDARView() }
         .alert("ShapeMeasure", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } }), presenting: store.notice) { _ in
             Button("OK", role: .cancel) { store.notice = nil }
         } message: { notice in Text(notice.message) }

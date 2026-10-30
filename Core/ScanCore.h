@@ -7,6 +7,10 @@ extern "C" {
 #endif
 
 typedef struct { double x, y, z; } SCPoint3; /* Input: right-handed, Y up. */
+typedef struct {
+    float x, y, z; /* ARKit world coordinates, metres, Y up. */
+    uint8_t red, green, blue, confidence; /* ARConfidenceLevel: 0, 1, 2. */
+} SCCloudPoint;
 typedef struct { int32_t a, b, c; } SCTriangle;
 typedef struct { SCPoint3 a, b; char label[48]; } SCLine;
 typedef struct {
@@ -34,6 +38,24 @@ int sc_export_bundle(const char *existing_directory,
 int sc_zip_bundle(const char *directory, const char *zip_path,
                   char *error, size_t error_capacity);
 const char *sc_local_crs(void);
+/* Depth is distance from the camera plane, not radial distance. Intrinsics
+   must be scaled to the depth map. transform is ARCamera.transform, 16 floats
+   in column-major order. Pixel coordinates use the native camera image,
+   independent of screen orientation. Camera forward is negative Z. */
+int sc_depth_unproject(float u, float v, float depth,
+                       float fx, float fy, float cx, float cy,
+                       const float *transform, SCPoint3 *world);
+/* NV12 camera colour. bt709=0 uses BT.601, 1 uses BT.709. */
+void sc_camera_rgb(uint8_t y, uint8_t cb, uint8_t cr, int full_range,
+                   int bt709, uint8_t *rgb);
+/* Binary little-endian PLY: float XYZ, uchar RGB, uchar confidence. No faces.
+   XYZ is plain text, three columns in the same metric Y-up world frame.
+   At most 500,000 points. Validation precedes opening the file; partial writes
+   are removed on failure. Neither exporter changes the coordinates. */
+int sc_write_cloud_ply(const char *path, const SCCloudPoint *points,
+                       int32_t count, char *error, size_t error_capacity);
+int sc_write_cloud_xyz(const char *path, const SCCloudPoint *points,
+                       int32_t count, char *error, size_t error_capacity);
 #ifdef __cplusplus
 }
 #endif
