@@ -42,8 +42,9 @@ def main():
     parser.add_argument("--bundle-id", required=True)
     parser.add_argument("--counter", required=True)
     parser.add_argument("--offset", default="0")
+    parser.add_argument("--project", default="ShapeMeasure.xcodeproj", help="which .xcodeproj to configure")
     args = parser.parse_args()
-    project_path = Path(__file__).resolve().parents[1] / "ShapeMeasure.xcodeproj/project.pbxproj"
+    project_path = Path(__file__).resolve().parents[1] / args.project / "project.pbxproj"
     try:
         build_number = configure(project_path, args.bundle_id, args.counter, args.offset)
     except (ValueError, OSError) as error:

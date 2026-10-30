@@ -51,3 +51,54 @@ workflows:
         # in App Store Connect, following CODEMAGIC.md.
         submit_to_testflight: false
         submit_to_app_store: false
+
+  partscan-testflight:
+    name: PartScan TestFlight (iPhone LiDAR scanner app)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: shapemeasure-apple
+    environment:
+      xcode: "26.6"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.maged.shapemeasure
+      vars:
+        # PartScan ships under the existing ShapeMeasure app record (same bundle ID, version 1.0.x).
+        # Installing it from TestFlight replaces ShapeMeasure on the phone, and vice versa.
+        BUNDLE_ID: "com.maged.shapemeasure"
+        BUILD_NUMBER_OFFSET: "0"
+    scripts:
+      - name: Regenerate the Xcode project from PartScan/ and configure it
+        script: |
+          set -euo pipefail
+          python3 Scripts/generate_partscan_project.py
+          python3 Scripts/configure_ci.py \
+            --project PartScan.xcodeproj \
+            --bundle-id "$BUNDLE_ID" \
+            --counter "$PROJECT_BUILD_NUMBER" \
+            --offset "$BUILD_NUMBER_OFFSET"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Apply App Store signing profiles
+        script: |
+          set -euo pipefail
+          xcode-project use-profiles --project PartScan.xcodeproj
+      - name: Build signed PartScan app
+        script: |
+          set -euo pipefail
+          xcode-project build-ipa \
+            --project PartScan.xcodeproj \
+            --scheme PartScan \
+            --config Release
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Uploads the build to App Store Connect. Give your internal TestFlight group
+        # "automatic distribution" (PARTSCAN.md) and every upload lands on the phone by itself.
+        submit_to_testflight: false
+        submit_to_app_store: false
