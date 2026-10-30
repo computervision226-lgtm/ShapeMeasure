@@ -109,9 +109,10 @@ def _font(px: int):
         return ImageFont.load_default()
 
 
-def render_board_pdf(spec: BoardSpec, path: str, paper: str = "A4", px_per_mm: int = 24) -> str:
+def render_board_pdf(spec: BoardSpec, path: str, paper: str = "A4", px_per_mm: int = 24, text: bool = True) -> str:
     """Write a print-ready PDF (landscape) with the board at exact physical size plus
-    reference rulers. px_per_mm=24 -> 609.6 dpi so every square is an integer number of pixels."""
+    reference rulers. px_per_mm=24 -> 609.6 dpi so every square is an integer number of pixels.
+    text=False leaves out the captions (the bare 100 mm ruler stays)."""
     pw, ph = PAPER_MM[paper]
     W, H = int(round(pw * px_per_mm)), int(round(ph * px_per_mm))
     bw_mm, bh_mm = spec.squares_x * spec.square_mm, spec.squares_y * spec.square_mm
@@ -130,7 +131,8 @@ def render_board_pdf(spec: BoardSpec, path: str, paper: str = "A4", px_per_mm: i
     top = y0 / mm  # mm of margin above the board
     txt = (f"PartScan ChArUco board  |  {spec.squares_x}x{spec.squares_y} squares of {spec.square_mm:g} mm, "
            f"markers {spec.marker_mm:g} mm, {spec.dictionary}  |  PRINT AT 100% / ACTUAL SIZE, glue flat to a rigid board")
-    dr.text((x0, max(1.5, top / 2 - 1.5) * mm), txt, fill=0, font=f_small)
+    if text:
+        dr.text((x0, max(1.5, top / 2 - 1.5) * mm), txt, fill=0, font=f_small)
     # reference ruler under the board: 100 mm with 10 mm ticks
     by = y0 + bh + int(min(4, (ph - bh_mm) / 2 - 6) * mm)
     L = 100 * mm
@@ -138,9 +140,10 @@ def render_board_pdf(spec: BoardSpec, path: str, paper: str = "A4", px_per_mm: i
     for k in range(11):
         tick = int((2.5 if k % 5 == 0 else 1.5) * mm)
         dr.line([(x0 + k * 10 * mm, by - tick), (x0 + k * 10 * mm, by)], fill=0, width=max(2, mm // 6))
-    dr.text((x0 + L + 2 * mm, by - 3 * mm),
-            f"100 mm check ruler: measure it (or 6 squares between inner corners = {6 * spec.square_mm:g} mm) "
-            f"and enter the value in the app.", fill=0, font=f_small)
+    if text:
+        dr.text((x0 + L + 2 * mm, by - 3 * mm),
+                f"100 mm check ruler: measure it (or 6 squares between inner corners = {6 * spec.square_mm:g} mm) "
+                f"and enter the value in the app.", fill=0, font=f_small)
     page.save(path, "PDF", resolution=px_per_mm * 25.4)
     return path
 

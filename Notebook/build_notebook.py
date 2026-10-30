@@ -7,7 +7,7 @@ import nbformat as nbf
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PKG = os.path.join(HERE, "..", "Server", "partscan")
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "PartScan_LiDAR.ipynb")
+OUT = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else os.path.join(HERE, "PartScan_LiDAR.ipynb")
 
 MODULES = ["__init__", "config", "geometry", "io_scans", "board", "bundle", "poses", "segment", "depth",
            "fusion", "meshproc", "measure", "drawings", "viewer", "report", "export", "pipeline", "app", "api"]
@@ -36,7 +36,8 @@ Scan one small part (a bracket, housing, fixture, casting…) with an **iPhone 1
 ### You need
 * **iPhone 17 Pro or 17 Pro Max** (iPhone 12 Pro – 16 Pro Max and LiDAR iPad Pros work too). ⚠️ The plain
   **iPhone 17 and iPhone Air have no LiDAR.**
-* The free app **Stray Scanner** (App Store). Record3D `.r3d`, Polycam *raw data* and 3D Scanner App *All Data* zips also work.
+* The **PartScan iPhone app** (TestFlight, built from this repository) — it records, uploads and shows the results.
+  Without it: the free app **Stray Scanner** (App Store); Record3D `.r3d`, Polycam *raw data* and 3D Scanner App zips also work.
 * The **PartScan board** — make the PDF in the app's tab *2 · Board* (or use the board PDFs that came with this
   notebook), print it at 100 % and measure its printed 100 mm ruler; you enter that value in the app.
 * A **GPU runtime**: *Runtime → Change runtime type → T4 GPU* (free tier is fine).
@@ -44,13 +45,13 @@ Scan one small part (a bracket, housing, fixture, casting…) with an **iPhone 1
 ### Quick start
 1. **Runtime → Run all.** The app appears in section 3 (the first run downloads ≈2 GB of model weights).
 2. Tab **2 · Board** → print at 100 % → measure the printed 100 mm ruler.
-3. Tab **3 · Guide** → record with Stray Scanner → *Share → Save to Files → Google Drive › PartScan* →
-   press ↻ in tab 1, pick the scan → **Build 3D model** (roughly 10 min on a T4; *Fast* about half).
+3. **With the PartScan iPhone app:** set `PUBLIC_LINK = True` in section 3 before running it — the cell shows a
+   QR code; in the app's *Server* tab tap *Scan the QR code*, then record and *Upload & build* (roughly 10 min on a
+   T4; *Fast* about half). **Without the app:** record with Stray Scanner → *Share → Save to Files → Google Drive ›
+   PartScan* → press ↻ in tab 1, pick the scan → **Build 3D model**.
 
-**Using it on the iPhone:** set `PUBLIC_LINK = True` in section 3 — the cell then shows a QR code; scan it, and in
-Safari choose *Share → Add to Home Screen* to install PartScan as an app on the phone (the notebook keeps running
-the heavy lifting on the GPU). This needs Colab Pro / a compute-unit balance: Google's FAQ disallows using a
-**free** runtime mainly through a web UI. For a permanent address, see *Hosting it yourself* at the end.
+The public link needs Colab Pro / a compute-unit balance (Google's FAQ disallows using a **free** runtime mainly
+through a web link) and the notebook tab must stay open. For a permanent address, see *Hosting it yourself* at the end.
 """
 
 SETUP = """#@title 1 · Setup (≈1 min) { display-mode: "form" }
@@ -255,23 +256,67 @@ dataset terms before commercial use). SAM 2.1: Apache-2.0. Stray Scanner: MIT. t
 """
 
 
+REPO_URL = "https://github.com/computervision226-lgtm/ShapeMeasure"
+
+INTRO_SLIM = INTRO.replace(
+    "### Quick start",
+    "This is the **small** version of the notebook: section 1 pulls the latest PartScan code from GitHub\n"
+    f"(`{REPO_URL}`, folder `Server/partscan`), so it is always current. The self-contained version with the code\n"
+    "inside is `Notebook/PartScan_LiDAR.ipynb` in the same repository.\n\n### Quick start")
+
+SETUP_SLIM = f"""#@title 1 · Setup: get the PartScan code from GitHub (≈1 min) {{ display-mode: "form" }}
+REPO = "{REPO_URL}"  #@param {{type:"string"}}
+BRANCH = "main"  #@param {{type:"string"}}
+import os, sys, subprocess, importlib, shutil
+try:
+    import torch
+    gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
+except Exception:
+    gpu = None
+print("GPU:", gpu or "NONE - choose Runtime > Change runtime type > T4 GPU (CPU works but is very slow)")
+pkgs = ["trimesh", "av", "fast-simplification", "qrcode"]
+missing = [p for p in pkgs if importlib.util.find_spec(p.replace("-", "_")) is None]
+if missing:
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", *missing], check=True)
+src = "/content/ShapeMeasure"
+shutil.rmtree(src, ignore_errors=True)
+subprocess.run(["git", "clone", "--quiet", "--depth", "1", "--branch", BRANCH, REPO, src], check=True)
+shutil.rmtree("/content/partscan", ignore_errors=True)
+shutil.copytree(os.path.join(src, "Server", "partscan"), "/content/partscan")
+os.chdir("/content")
+for k in [k for k in sys.modules if k == "partscan" or k.startswith("partscan.")]:
+    del sys.modules[k]
+import partscan, transformers, gradio, cv2, numpy
+print("PartScan", partscan.__version__, "from", REPO, "branch", BRANCH)
+print("transformers", transformers.__version__, "| gradio", gradio.__version__, "| opencv", cv2.__version__,
+      "| numpy", numpy.__version__)
+print("ready")"""
+
+
 def main():
+    slim = "--slim" in sys.argv
+    out = OUT
+    if slim and len(sys.argv) < 3:
+        out = os.path.join(os.path.dirname(OUT), "PartScan_LiDAR_Colab.ipynb")
     nb = nbf.v4.new_notebook()
-    cells = [nbf.v4.new_markdown_cell(INTRO), nbf.v4.new_code_cell(SETUP), nbf.v4.new_markdown_cell(ENGINE_MD)]
-    for mod in MODULES:
-        src = open(os.path.join(PKG, mod + ".py"), encoding="utf-8").read().rstrip() + "\n"
-        cells.append(nbf.v4.new_code_cell(f"%%writefile /content/partscan/{mod}.py\n" + src))
+    if slim:
+        cells = [nbf.v4.new_markdown_cell(INTRO_SLIM), nbf.v4.new_code_cell(SETUP_SLIM)]
+    else:
+        cells = [nbf.v4.new_markdown_cell(INTRO), nbf.v4.new_code_cell(SETUP), nbf.v4.new_markdown_cell(ENGINE_MD)]
+        for mod in MODULES:
+            src = open(os.path.join(PKG, mod + ".py"), encoding="utf-8").read().rstrip() + "\n"
+            cells.append(nbf.v4.new_code_cell(f"%%writefile /content/partscan/{mod}.py\n" + src))
     cells += [nbf.v4.new_markdown_cell(DRIVE_MD), nbf.v4.new_code_cell(LAUNCH),
               nbf.v4.new_markdown_cell(MANUAL_MD), nbf.v4.new_code_cell(MANUAL),
               nbf.v4.new_markdown_cell(TIPS)]
     nb["cells"] = cells
     nb["metadata"] = {"accelerator": "GPU", "colab": {"provenance": [], "gpuType": "T4", "toc_visible": True,
-                                                      "name": "PartScan_LiDAR.ipynb"},
+                                                      "name": os.path.basename(out)},
                       "kernelspec": {"name": "python3", "display_name": "Python 3"},
                       "language_info": {"name": "python"}}
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    nbf.write(nb, OUT)
-    print("wrote", OUT, os.path.getsize(OUT) // 1024, "KB,", len(cells), "cells")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    nbf.write(nb, out)
+    print("wrote", out, os.path.getsize(out) // 1024, "KB,", len(cells), "cells")
 
 
 if __name__ == "__main__":

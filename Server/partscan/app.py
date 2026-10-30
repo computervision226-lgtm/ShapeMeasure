@@ -91,6 +91,38 @@ def _list_drive(folder):
     return out
 
 
+BOARD_FILES = (("PartScan_board_Letter.pdf", "Letter", "Standard 8x6 (Letter / A4)", True),
+               ("PartScan_board_Letter_no_text.pdf", "Letter", "Standard 8x6 (Letter / A4)", False),
+               ("PartScan_board_A4.pdf", "A4", "Standard 8x6 (Letter / A4)", True),
+               ("PartScan_board_A3.pdf", "A3", "Large 11x7 (A3 / Tabloid)", True),
+               ("PartScan_board_Tabloid.pdf", "Tabloid", "Large 11x7 (A3 / Tabloid)", True))
+
+
+def export_boards(folder: str) -> list:
+    """Write every printable board PDF into `folder` (skipping the ones already there). Returns the paths."""
+    from .board import render_board_pdf
+    os.makedirs(folder, exist_ok=True)
+    out = []
+    for name, paper, board_name, text in BOARD_FILES:
+        path = os.path.join(folder, name)
+        if not os.path.exists(path):
+            try:
+                render_board_pdf(BoardSpec(**BOARDS[board_name]), path, paper=paper, text=text)
+            except Exception as ex:
+                log.warning("could not write %s: %s", name, ex)
+                continue
+        out.append(path)
+    return out
+
+
+def boards_folder_for(drive_dir: str) -> str:
+    """Where the boards go on Google Drive: MyDrive/ShapeMeasure/Boards if that project folder exists,
+    otherwise next to the scans in MyDrive/PartScan/Boards."""
+    my_drive = os.path.dirname(os.path.abspath(drive_dir.rstrip("/")))
+    shape = os.path.join(my_drive, "ShapeMeasure")
+    return os.path.join(shape if os.path.isdir(shape) else drive_dir, "Boards")
+
+
 def _viewer_iframe(path, height=560):
     if not path:
         return ""
@@ -184,6 +216,14 @@ def build_app(out_root: str = "/content/partscan_runs", drive_dir: str | None = 
         p = os.path.join(out_root, f"PartScan_board_{paper}.pdf")
         render_board_pdf(spec, p, paper)
         return p
+
+    if drive_dir:
+        try:
+            folder = boards_folder_for(drive_dir)
+            if export_boards(folder):
+                log.info("printable boards are in %s", folder)
+        except Exception as ex:
+            log.warning("could not export the boards to Drive: %s", ex)
 
     with gr.Blocks(title="PartScan") as demo:
         gr.Markdown("# PartScan  ·  iPhone LiDAR → measured 3D model", elem_id="ps-title")
