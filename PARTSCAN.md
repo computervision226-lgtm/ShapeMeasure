@@ -62,7 +62,8 @@ needs your Hugging Face token in the app (read access).
 
 1. **Server tab** → *Scan the QR code from the notebook* (or type URL + key) → *Test connection* should say
    "Connected … on cuda".
-2. Print a board from `Boards/` at 100 %, glue it flat, measure its 100 mm ruler.
+2. Print a board at 100 %, glue it flat, measure its 100 mm ruler. The PDFs are in `Boards/` here, and the
+   notebook also writes them to Google Drive (*MyDrive/ShapeMeasure/Boards*, or *MyDrive/PartScan/Boards*) when it starts.
 3. **Scan tab**: part in the middle of the board, 30–40 cm away. Record: low ring (≈20°), middle ring (≈45°),
    high ring (≈70°), slow pass over the top; a few views straight into any side holes. The panel shows how much of
    each ring is covered. Stop.
